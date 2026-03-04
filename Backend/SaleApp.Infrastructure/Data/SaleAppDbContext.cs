@@ -33,7 +33,7 @@ public class SaleAppDbContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<StoreLocation> StoreLocations { get; set; }
 
-    public static string GetConnectionString(string connectionStringName)
+     public static string GetConnectionString(string connectionStringName)
     {
         string? envConnectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionStringName}");
         if (!string.IsNullOrEmpty(envConnectionString))
@@ -41,12 +41,7 @@ public class SaleAppDbContext : DbContext
             return envConnectionString;
         }
 
-        var basePath = AppDomain.CurrentDomain.BaseDirectory;
-        
-        if (!File.Exists(Path.Combine(basePath, "appsettings.json")))
-        {
-            basePath = Directory.GetCurrentDirectory();
-        }
+        var basePath = FindAppSettingsDirectory();
 
         var config = new ConfigurationBuilder()
             .SetBasePath(basePath)
@@ -55,8 +50,34 @@ public class SaleAppDbContext : DbContext
             .AddEnvironmentVariables()
             .Build();
 
-        string connectionString = config.GetConnectionString(connectionStringName) ?? string.Empty;
-        return connectionString;
+        string? connectionString = config.GetConnectionString(connectionStringName);
+        return connectionString ?? string.Empty;
+    }
+
+    private static string FindAppSettingsDirectory()
+    {
+        var candidates = new[]
+        {
+            AppDomain.CurrentDomain.BaseDirectory,
+            Directory.GetCurrentDirectory(),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(Path.Combine(candidate, "appsettings.json")))
+                return candidate;
+        }
+
+        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "appsettings.json")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        // Fallback
+        return Directory.GetCurrentDirectory();
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
