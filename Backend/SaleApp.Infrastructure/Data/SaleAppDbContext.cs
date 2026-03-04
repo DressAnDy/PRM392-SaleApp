@@ -12,6 +12,10 @@ public class SaleAppDbContext : DbContext
     {
     }
 
+    public SaleAppDbContext()
+    {
+    }
+
     // DbSets
     public DbSet<Role> Roles { get; set; }
     public DbSet<User> Users { get; set; }
@@ -31,19 +35,24 @@ public class SaleAppDbContext : DbContext
 
     public static string GetConnectionString(string connectionStringName)
     {
-        // Kiểm tra biến môi trường trước
         string? envConnectionString = Environment.GetEnvironmentVariable($"ConnectionStrings__{connectionStringName}");
         if (!string.IsNullOrEmpty(envConnectionString))
         {
             return envConnectionString;
         }
 
-        // Nếu không có biến môi trường, đọc từ appsettings
+        var basePath = AppDomain.CurrentDomain.BaseDirectory;
+        
+        if (!File.Exists(Path.Combine(basePath, "appsettings.json")))
+        {
+            basePath = Directory.GetCurrentDirectory();
+        }
+
         var config = new ConfigurationBuilder()
-            .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+            .SetBasePath(basePath)
             .AddJsonFile("appsettings.json", optional: true)
             .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Development"}.json", optional: true)
-            .AddEnvironmentVariables() // Thêm biến môi trường vào cấu hình
+            .AddEnvironmentVariables()
             .Build();
 
         string connectionString = config.GetConnectionString(connectionStringName) ?? string.Empty;
