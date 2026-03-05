@@ -68,11 +68,23 @@ public class SaleAppDbContext : DbContext
                 return candidate;
         }
 
+        // Walk up and also check sibling directories at each level
         var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
         while (dir != null)
         {
             if (File.Exists(Path.Combine(dir.FullName, "appsettings.json")))
                 return dir.FullName;
+
+            // Check siblings (e.g. SaleApp.API sitting next to SaleApp.Infrastructure)
+            if (dir.Parent != null)
+            {
+                foreach (var sibling in dir.Parent.EnumerateDirectories())
+                {
+                    if (File.Exists(Path.Combine(sibling.FullName, "appsettings.json")))
+                        return sibling.FullName;
+                }
+            }
+
             dir = dir.Parent;
         }
 
