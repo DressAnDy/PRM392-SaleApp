@@ -21,12 +21,12 @@ public class ExceptionHandlingMiddleware
             await _next(context);
 
             // Handle Unauthorized (401) responses
-            if (context.Response.StatusCode == (int)HttpStatusCode.Unauthorized)
+            if (context.Response.StatusCode == (int)HttpStatusCode.Unauthorized && !context.Response.HasStarted)
             {
                 await HandleUnauthorizedAsync(context);
             }
             // Handle Forbidden (403) responses
-            else if (context.Response.StatusCode == (int)HttpStatusCode.Forbidden)
+            else if (context.Response.StatusCode == (int)HttpStatusCode.Forbidden && !context.Response.HasStarted)
             {
                 await HandleForbiddenAsync(context);
             }
@@ -34,17 +34,28 @@ public class ExceptionHandlingMiddleware
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Unauthorized access attempt");
-            await HandleUnauthorizedAsync(context, ex.Message);
+            if (!context.Response.HasStarted)
+            {
+                await HandleUnauthorizedAsync(context, ex.Message);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception has occurred");
-            await HandleExceptionAsync(context, ex);
+            if (!context.Response.HasStarted)
+            {
+                await HandleExceptionAsync(context, ex);
+            }
         }
     }
 
     private static Task HandleUnauthorizedAsync(HttpContext context, string? message = null)
     {
+        if (context.Response.HasStarted)
+        {
+            return Task.CompletedTask;
+        }
+
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
 
@@ -60,6 +71,11 @@ public class ExceptionHandlingMiddleware
 
     private static Task HandleForbiddenAsync(HttpContext context)
     {
+        if (context.Response.HasStarted)
+        {
+            return Task.CompletedTask;
+        }
+
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
 
@@ -75,6 +91,11 @@ public class ExceptionHandlingMiddleware
 
     private static Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
+        if (context.Response.HasStarted)
+        {
+            return Task.CompletedTask;
+        }
+
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
