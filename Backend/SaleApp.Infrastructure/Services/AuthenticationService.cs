@@ -130,7 +130,7 @@ public class AuthenticationService : IAuthenticationService
             }
 
             // Generate JWT token
-            var token = GenerateJwtToken(user);
+            var token = await GenerateJwtToken(user);
 
             return new LoginResponse
             {
@@ -158,7 +158,7 @@ public class AuthenticationService : IAuthenticationService
         }
     }
 
-    private string GenerateJwtToken(User user)
+    private async Task<string> GenerateJwtToken(User user)
     {
         var jwtSettings = _configuration.GetSection("JwtSettings");
         var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey not configured");
@@ -168,12 +168,25 @@ public class AuthenticationService : IAuthenticationService
         var audience = jwtSettings["Audience"] ?? "SaleAppUsers";
         var expirationMinutes = int.Parse(jwtSettings["ExpirationMinutes"] ?? "60");
 
-        var claims = new[]
+        // Load user roles from database
+        var userRoles = await _context.UserRoles
+            .Include(ur => ur.Role)
+            .Where(ur => ur.UserId == user.UserId)
+            .Select(ur => ur.Role.RoleName)
+            .ToListAsync();
+
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Email, user.Email)
         };
+
+        // Add role claims
+        foreach (var role in userRoles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
 
         var token = new JwtSecurityToken(
             issuer: issuer,
