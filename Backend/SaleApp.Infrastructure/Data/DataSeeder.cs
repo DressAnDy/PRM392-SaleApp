@@ -70,6 +70,17 @@ public class DataSeeder
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
+                },
+                new User
+                {
+                    Username = "shop_seller",
+                    Password = BCrypt.Net.BCrypt.HashPassword("seller@123"),
+                    Email = "seller@saleapp.com",
+                    PhoneNumber = "0945678901",
+                    Address = "999 Shop Street, City",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 }
             };
 
@@ -80,13 +91,21 @@ public class DataSeeder
             var userRoles = new List<UserRole>
             {
                 new UserRole { UserId = users[0].UserId, RoleId = roles[0].RoleId }, // admin -> Admin
-                new UserRole { UserId = users[1].UserId, RoleId = roles[2].RoleId }, // john -> User
-                new UserRole { UserId = users[2].UserId, RoleId = roles[1].RoleId }, // jane -> User
-                new UserRole { UserId = users[3].UserId, RoleId = roles[1].RoleId }  // bob -> User
+                new UserRole { UserId = users[1].UserId, RoleId = roles[1].RoleId }, // john_doe -> User
+                new UserRole { UserId = users[2].UserId, RoleId = roles[1].RoleId }, // jane_smith -> User
+                new UserRole { UserId = users[3].UserId, RoleId = roles[1].RoleId }, // bob_wilson -> User
+                new UserRole { UserId = users[4].UserId, RoleId = roles[2].RoleId }  // shop_seller -> Seller
             };
 
             await context.UserRoles.AddRangeAsync(userRoles);
             await context.SaveChangesAsync();
+
+            Console.WriteLine("✅ Seeded UserRoles:");
+            Console.WriteLine($"   - admin (UserId={users[0].UserId}) -> Admin");
+            Console.WriteLine($"   - john_doe (UserId={users[1].UserId}) -> User");
+            Console.WriteLine($"   - jane_smith (UserId={users[2].UserId}) -> User");
+            Console.WriteLine($"   - bob_wilson (UserId={users[3].UserId}) -> User");
+            Console.WriteLine($"   - shop_seller (UserId={users[4].UserId}) -> Seller");
 
             // Seed Categories
             var categories = new List<Category>

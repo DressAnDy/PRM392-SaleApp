@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using SaleApp.API.Hubs;
 using SaleApp.Application.DTOs;
 using SaleApp.Application.Interfaces;
 using System.Security.Claims;
@@ -12,10 +14,17 @@ namespace SaleApp.API.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
+    private readonly IHubContext<ChatHub> _hubContext;
+    private readonly ILogger<ChatController> _logger;
 
-    public ChatController(IChatService chatService)
+    public ChatController(
+        IChatService chatService, 
+        IHubContext<ChatHub> hubContext,
+        ILogger<ChatController> logger)
     {
         _chatService = chatService;
+        _hubContext = hubContext;
+        _logger = logger;
     }
 
     // GET: api/Chat/conversations
@@ -114,7 +123,38 @@ public class ChatController : ControllerBase
             return Forbid();
 
         var senderType = (userRole == "Admin" || userRole == "Seller") ? "Shop" : "User";
+        
+        // Save message to database
         var message = await _chatService.SendMessageAsync(id, request.Message, senderType, userId);
+
+        _logger.LogInformation($"?? REST API SendMessage: conversationId={id}, senderType={senderType}, userId={userId}");
+
+        // ? Send realtime message via SignalR
+        try
+        {
+            if (senderType == "Shop")
+            {
+                // Shop sent message ? Send to specific user
+                var targetUserId = conversation.UserId;
+                var targetGroup = $"user_{targetUserId}";
+                
+                _logger.LogInformation($"?? Sending to SignalR group: '{targetGroup}'");
+                await _hubContext.Clients.Group(targetGroup).SendAsync("ReceiveMessage", message);
+            }
+            else
+            {
+                // User sent message ? Send to all shop admins
+                _logger.LogInformation($"?? Sending to SignalR group: 'shop_admin'");
+                await _hubContext.Clients.Group("shop_admin").SendAsync("ReceiveMessage", message);
+            }
+
+            _logger.LogInformation($"? Message sent via SignalR successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"? Failed to send via SignalR: {ex.Message}");
+            // Continue even if SignalR fails - message is already saved to DB
+        }
 
         return Ok(message);
     }
