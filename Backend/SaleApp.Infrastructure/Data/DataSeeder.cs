@@ -80,7 +80,7 @@ public class DataSeeder
             var userRoles = new List<UserRole>
             {
                 new UserRole { UserId = users[0].UserId, RoleId = roles[0].RoleId }, // admin -> Admin
-                new UserRole { UserId = users[1].UserId, RoleId = roles[1].RoleId }, // john -> User
+                new UserRole { UserId = users[1].UserId, RoleId = roles[2].RoleId }, // john -> User
                 new UserRole { UserId = users[2].UserId, RoleId = roles[1].RoleId }, // jane -> User
                 new UserRole { UserId = users[3].UserId, RoleId = roles[1].RoleId }  // bob -> User
             };
@@ -394,7 +394,86 @@ public class DataSeeder
             await context.StoreLocations.AddRangeAsync(storeLocations);
             await context.SaveChangesAsync();
 
-            Console.WriteLine("✅ Database seeding completed successfully!");
+            // Seed ChatConversations (for regular users, NOT admin)
+            var chatConversations = new List<ChatConversation>
+            {
+                new ChatConversation
+                {
+                    UserId = users[1].UserId, // john_doe (User, not Admin)
+                    Status = "Open",
+                    CreatedAt = DateTime.UtcNow.AddDays(-1),
+                    LastMessageAt = DateTime.UtcNow.AddHours(-2)
+                },
+                new ChatConversation
+                {
+                    UserId = users[2].UserId, // jane_smith (User)
+                    Status = "Open",
+                    CreatedAt = DateTime.UtcNow.AddDays(-2),
+                    LastMessageAt = DateTime.UtcNow.AddHours(-5)
+                },
+                new ChatConversation
+                {
+                    UserId = users[3].UserId, // bob_wilson (User)
+                    Status = "Open",
+                    CreatedAt = DateTime.UtcNow.AddDays(-3),
+                    LastMessageAt = DateTime.UtcNow.AddDays(-3)
+                }
+            };
+
+            await context.ChatConversations.AddRangeAsync(chatConversations);
+            await context.SaveChangesAsync();
+
+            Console.WriteLine($"    Created {chatConversations.Count} chat conversations");
+            Console.WriteLine($"      - Conversation 1: john_doe (UserId={users[1].UserId})");
+            Console.WriteLine($"      - Conversation 2: jane_smith (UserId={users[2].UserId})");
+            Console.WriteLine($"      - Conversation 3: bob_wilson (UserId={users[3].UserId})");
+
+            // Seed ChatMessages
+            var chatMessages = new List<ChatMessage>
+            {
+                // Conversation 1: john_doe asking about iPhone
+                new ChatMessage
+                {
+                    ConversationId = chatConversations[0].ConversationId,
+                    SenderType = "User",
+                    Message = "Hi, I have a question about iPhone 15 Pro",
+                    SentAt = DateTime.UtcNow.AddHours(-3),
+                    ReadAt = DateTime.UtcNow.AddHours(-2)
+                },
+                new ChatMessage
+                {
+                    ConversationId = chatConversations[0].ConversationId,
+                    SenderType = "Shop",
+                    Message = "Hello! How can I help you?",
+                    SentAt = DateTime.UtcNow.AddHours(-2),
+                    ReadAt = DateTime.UtcNow.AddHours(-1)
+                },
+                // Conversation 2: jane_smith asking about delivery
+                new ChatMessage
+                {
+                    ConversationId = chatConversations[1].ConversationId,
+                    SenderType = "User",
+                    Message = "When will my order be delivered?",
+                    SentAt = DateTime.UtcNow.AddHours(-5),
+                    ReadAt = null
+                },
+                // Conversation 3: bob_wilson asking about stock
+                new ChatMessage
+                {
+                    ConversationId = chatConversations[2].ConversationId,
+                    SenderType = "User",
+                    Message = "Do you have this product in stock?",
+                    SentAt = DateTime.UtcNow.AddDays(-3),
+                    ReadAt = DateTime.UtcNow.AddDays(-3)
+                }
+            };
+
+            await context.ChatMessages.AddRangeAsync(chatMessages);
+            await context.SaveChangesAsync();
+
+            Console.WriteLine($"  Created {chatMessages.Count} chat messages");
+
+            Console.WriteLine(" Database seeding completed successfully!");
         }
         catch (Exception ex)
         {
