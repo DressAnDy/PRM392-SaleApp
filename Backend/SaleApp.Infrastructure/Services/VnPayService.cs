@@ -1,7 +1,9 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using SaleApp.Application.DTOs;
 using SaleApp.Application.Interfaces;
 using SaleApp.Infrastructure.Data;
@@ -15,30 +17,40 @@ public class VnPayService : IVnPayService
         "ICT", TimeSpan.FromHours(7), "Indochina Time", "Indochina Time");
 
     private readonly SaleAppDbContext _context;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<VnPayService> _logger;
     private readonly string _tmnCode;
     private readonly string _hashSecret;
     private readonly string _paymentUrl;
-    private readonly string _returnUrl;
     private readonly string _version;
     private readonly string _command;
 
-    public VnPayService(SaleAppDbContext context, IConfiguration configuration)
+    public VnPayService(SaleAppDbContext context, IConfiguration configuration, ILogger<VnPayService> logger)
     {
         _context = context;
+        _configuration = configuration;
+        _logger = logger;
 
         var vnpay = configuration.GetSection("VNPay");
         _tmnCode = vnpay["TmnCode"] ?? throw new InvalidOperationException("VNPay:TmnCode not configured");
         _hashSecret = vnpay["HashSecret"] ?? throw new InvalidOperationException("VNPay:HashSecret not configured");
         _paymentUrl = vnpay["PaymentUrl"] ?? throw new InvalidOperationException("VNPay:PaymentUrl not configured");
-        _returnUrl = vnpay["ReturnUrl"] ?? throw new InvalidOperationException("VNPay:ReturnUrl not configured");
         _version = vnpay["Version"] ?? "2.1.0";
         _command = vnpay["Command"] ?? "pay";
     }
 
     // ─────────────────────────── Public Methods ────────────────────────────
 
-    public async Task<VnPayCreateUrlResponse> CreatePaymentUrlAsync(int orderId, string ipAddress)
+    public async Task<VnPayCreateUrlResponse> CreatePaymentUrlAsync(
+        int orderId,
+        string ipAddress,
+        bool isMobile = false,
+        bool useSDK = false)
     {
+        _logger.LogInformation(
+            "Creating payment URL — OrderId: {OrderId}, IpAddress: {IpAddress}, IsMobile: {IsMobile}, UseSDK: {UseSDK}",
+            orderId, ipAddress, isMobile, useSDK);
+
         var payment = await _context.Payments
             .Include(p => p.Order)
             .FirstOrDefaultAsync(p => p.OrderId == orderId && p.PaymentStatus == "Pending")
@@ -47,8 +59,29 @@ public class VnPayService : IVnPayService
         var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _ict);
         var expireDate = now.AddMinutes(15);
 
-        // VNPay amount is in "smallest currency unit" — VND has no sub-unit so multiply by 100
-        var amount = (long)(payment.Amount * 100);
+        // VNPay requires amount in VND * 100 per their spec.
+        // Prices in DB are stored in units of 1,000 VND (nghìn đồng),
+        // so conversion: amount(nghìn) × 1,000 (→ VND) × 100 (→ VNPay unit) = × 100,000
+        var amount = (long)(payment.Amount * 100_000);
+
+        // Append timestamp to vnp_TxnRef so every URL generation is unique.
+        // VNPay rejects duplicate TxnRef that already exist in their system.
+        var txnRef = $"{payment.PaymentId}{now:yyyyMMddHHmmss}";
+
+        string returnUrl;
+        if (useSDK)
+            returnUrl = _configuration["VNPay:ReturnUrl:MobileSDK"];
+        else if (isMobile)
+            returnUrl = _configuration["VNPay:ReturnUrl:MobileCustomTabs"] ?? "saleapp://payment/callback";
+        else
+            returnUrl = _configuration["VNPay:ReturnUrl:Web"];
+
+        if (string.IsNullOrEmpty(returnUrl))
+            throw new InvalidOperationException("VNPay ReturnUrl not configured");
+
+        _logger.LogInformation(
+            "ReturnUrl selected — IsMobile: {IsMobile}, UseSDK: {UseSDK}, URL: {ReturnUrl}",
+            isMobile, useSDK, returnUrl);
 
         var requestData = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
@@ -57,20 +90,25 @@ public class VnPayService : IVnPayService
             ["vnp_TmnCode"] = _tmnCode,
             ["vnp_Amount"] = amount.ToString(),
             ["vnp_CurrCode"] = "VND",
-            ["vnp_TxnRef"] = payment.PaymentId.ToString(),
+            ["vnp_TxnRef"] = txnRef,
             ["vnp_OrderInfo"] = $"Thanh toan don hang #{orderId}",
             ["vnp_OrderType"] = "other",
             ["vnp_Locale"] = "vn",
-            ["vnp_ReturnUrl"] = _returnUrl,
+            ["vnp_ReturnUrl"] = returnUrl,
             ["vnp_IpAddr"] = ipAddress,
             ["vnp_CreateDate"] = now.ToString("yyyyMMddHHmmss"),
             ["vnp_ExpireDate"] = expireDate.ToString("yyyyMMddHHmmss"),
         };
 
-        var queryString = BuildQueryString(requestData);
-        var secureHash = ComputeHmacSha512(_hashSecret, queryString);
+        // Hash input = URL-encoded query string (WebUtility, same as VNPay server).
+        // URL = same string + &vnp_SecureHash=<hash>  (hash value itself is NOT encoded).
+        var encodedData = BuildVnPayData(requestData);      // "key=val&key=val"
+        var secureHash = ComputeHmacSha512(_hashSecret, encodedData);
+        var paymentUrl = $"{_paymentUrl}?{encodedData}&vnp_SecureHash={secureHash}";
 
-        var paymentUrl = $"{_paymentUrl}?{queryString}&vnp_SecureHash={secureHash}";
+        _logger.LogInformation(
+            "Payment URL created — PaymentId: {PaymentId}, UrlLength: {Length}",
+            payment.PaymentId, paymentUrl.Length);
 
         return new VnPayCreateUrlResponse { PaymentUrl = paymentUrl };
     }
@@ -91,7 +129,7 @@ public class VnPayService : IVnPayService
         queryParams.TryGetValue("vnp_SecureHash", out var receivedHash);
         receivedHash ??= string.Empty;
 
-        // 2. Tạo SortedDictionary chỉ chứa các tham số vnp_ (trừ SecureHash)
+        // 2. Tạo SortedDictionary chỉ chứa các tham số vnp_ (trừ SecureHash + empty)
         var vnpParams = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var kvp in queryParams)
         {
@@ -100,15 +138,16 @@ public class VnPayService : IVnPayService
 
             if (key.StartsWith("vnp_") &&
                 key != "vnp_SecureHash" &&
-                key != "vnp_SecureHashType")
+                key != "vnp_SecureHashType" &&
+                !string.IsNullOrEmpty(value))   // loại bỏ empty values
             {
-                vnpParams[key] = value ?? string.Empty;
+                vnpParams[key] = value;
             }
         }
 
-        // 3. Tạo query string và tính hash để verify
-        var queryString = BuildQueryString(vnpParams);
-        var computedHash = ComputeHmacSha512(_hashSecret, queryString);
+        // 3. Verify signature: build the same WebUtility-encoded string VNPay signed
+        var encodedData = BuildVnPayData(vnpParams);
+        var computedHash = ComputeHmacSha512(_hashSecret, encodedData);
 
         if (!string.Equals(computedHash, receivedHash, StringComparison.OrdinalIgnoreCase))
         {
@@ -128,7 +167,9 @@ public class VnPayService : IVnPayService
         transactionId ??= string.Empty;
         txnRef ??= string.Empty;
 
-        if (!int.TryParse(txnRef, out var paymentId))
+        // vnp_TxnRef format: "{paymentId}{yyyyMMddHHmmss}" — timestamp is always 14 chars.
+        var paymentIdStr = txnRef.Length > 14 ? txnRef[..^14] : txnRef;
+        if (!int.TryParse(paymentIdStr, out var paymentId))
         {
             return new VnPayCallbackResponse
             {
@@ -196,25 +237,28 @@ public class VnPayService : IVnPayService
     // ─────────────────────────── Private Helpers ───────────────────────────
 
     /// <summary>
-    /// Builds URL-encoded query string from a sorted dictionary.
-    /// Values are percent-encoded (RFC 3986 — spaces become %20, not +).
+    /// Builds a URL-encoded query string from a sorted dictionary using
+    /// <see cref="WebUtility.UrlEncode"/> (spaces → +), exactly as VNPay does on their
+    /// server. This same string is used as BOTH the HMAC-SHA512 input AND the URL
+    /// query-string (vnp_SecureHash is appended separately, un-encoded).
+    /// Empty values are excluded.
     /// </summary>
-    private static string BuildQueryString(SortedDictionary<string, string> data)
+    private static string BuildVnPayData(SortedDictionary<string, string> data)
     {
         var sb = new StringBuilder();
         foreach (var (key, value) in data)
         {
+            if (string.IsNullOrEmpty(value)) continue;
             if (sb.Length > 0) sb.Append('&');
-            sb.Append(Uri.EscapeDataString(key));
+            sb.Append(WebUtility.UrlEncode(key));
             sb.Append('=');
-            sb.Append(Uri.EscapeDataString(value));
+            sb.Append(WebUtility.UrlEncode(value));
         }
         return sb.ToString();
     }
 
     /// <summary>
-    /// Computes HMAC-SHA512 of <paramref name="data"/> using <paramref name="key"/>.
-    /// Returns lowercase hex string.
+    /// Computes HMAC-SHA512 and returns the result as a lowercase hex string.
     /// </summary>
     private static string ComputeHmacSha512(string key, string data)
     {

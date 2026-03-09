@@ -30,11 +30,17 @@ public interface IOrderService
     Task<OrderDetailDto?> GetOrderByIdForUserAsync(int orderId, int userId);
 
     /// <summary>
-    /// Place a new order. If <see cref="CreateOrderRequest.Items"/> is null or empty,
-    /// the order is built from the user's active cart which is then cleared.
+    /// Place a new order by checking out everything in the user's active cart.
+    /// The cart is cleared (status → CheckedOut) after a successful order.
+    /// Throws <see cref="InvalidOperationException"/> when the cart is empty.
     /// </summary>
     Task<OrderDetailDto> CreateOrderAsync(int userId, CreateOrderRequest request);
 
     /// <summary>Cancel an order that belongs to the user (Pending or Processing only).</summary>
     Task<bool> CancelOrderAsync(int orderId, int userId);
+
+    /// <summary>
+    /// Preview the checkout totals from the user's active cart without placing the order.
+    /// </summary>
+    Task<CheckoutPreviewDto> GetCheckoutPreviewAsync(int userId, decimal shippingFee = 0, decimal discountAmount = 0);
 }

@@ -50,8 +50,9 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Place a new order. If 'items' is null or empty the order is created from the
-    /// user's active cart, which is then cleared automatically.
+    /// Checkout: creates an order from everything in the current user's active cart.
+    /// The cart is cleared automatically after a successful order.
+    /// Required: shippingAddress. Optional: billingAddress, shippingFee, discountAmount.
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
@@ -72,6 +73,19 @@ public class OrdersController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Preview the checkout totals from the current cart before placing the order.
+    /// Pass shippingFee and discountAmount as query params to see the final total.
+    /// </summary>
+    [HttpGet("checkout-preview")]
+    public async Task<IActionResult> GetCheckoutPreview(
+        [FromQuery] decimal shippingFee = 0,
+        [FromQuery] decimal discountAmount = 0)
+    {
+        var preview = await _orderService.GetCheckoutPreviewAsync(GetUserId(), shippingFee, discountAmount);
+        return Ok(preview);
     }
 
     /// <summary>

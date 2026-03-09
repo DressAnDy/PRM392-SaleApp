@@ -37,7 +37,6 @@ public class OrderService : IOrderService
         UserId = order.UserId,
         CustomerName = order.User?.Username ?? string.Empty,
         OrderStatus = order.OrderStatus,
-        PaymentMethod = order.PaymentMethod,
         ShippingAddress = order.ShippingAddress,
         Subtotal = order.Subtotal,
         ShippingFee = order.ShippingFee,
@@ -46,31 +45,41 @@ public class OrderService : IOrderService
         CreatedAt = order.CreatedAt
     };
 
-    private static OrderDetailDto MapToDetailDto(Order order) => new()
+    private static OrderDetailDto MapToDetailDto(Order order)
     {
-        OrderId = order.OrderId,
-        UserId = order.UserId,
-        CustomerName = order.User?.Username ?? string.Empty,
-        CustomerEmail = order.User?.Email,
-        OrderStatus = order.OrderStatus,
-        PaymentMethod = order.PaymentMethod,
-        ShippingAddress = order.ShippingAddress,
-        BillingAddress = order.BillingAddress,
-        Subtotal = order.Subtotal,
-        ShippingFee = order.ShippingFee,
-        DiscountAmount = order.DiscountAmount,
-        TotalItems = order.OrderItems.Sum(i => i.Quantity),
-        CreatedAt = order.CreatedAt,
-        UpdatedAt = order.UpdatedAt,
-        Items = order.OrderItems.Select(MapItemToDto).ToList()
-    };
+        var latestPayment = order.Payments?
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefault();
+
+        return new OrderDetailDto
+        {
+            OrderId = order.OrderId,
+            UserId = order.UserId,
+            CustomerName = order.User?.Username ?? string.Empty,
+            CustomerEmail = order.User?.Email,
+            OrderStatus = order.OrderStatus,
+            ShippingAddress = order.ShippingAddress,
+            BillingAddress = order.BillingAddress,
+            Subtotal = order.Subtotal,
+            ShippingFee = order.ShippingFee,
+            DiscountAmount = order.DiscountAmount,
+            TotalItems = order.OrderItems.Sum(i => i.Quantity),
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
+            Items = order.OrderItems.Select(MapItemToDto).ToList(),
+            PaymentId = latestPayment?.PaymentId,
+            PaymentStatus = latestPayment?.PaymentStatus,
+            PaymentMethod = latestPayment?.Method ?? order.PaymentMethod
+        };
+    }
 
     // ─── Query helpers ────────────────────────────────────────────────────────
 
     private IQueryable<Order> BaseQuery() =>
         _context.Orders
             .Include(o => o.OrderItems)
-            .Include(o => o.User);
+            .Include(o => o.User)
+            .Include(o => o.Payments);
 
     private static IQueryable<Order> ApplyFilter(IQueryable<Order> query, OrderQueryDto filter)
     {
@@ -185,61 +194,34 @@ public class OrderService : IOrderService
         if (string.IsNullOrWhiteSpace(request.ShippingAddress))
             throw new ArgumentException("Shipping address is required.");
 
-        // Determine line items: from explicit list or from the active cart
-        List<(int ProductId, int Quantity)> lineItems;
+        // ── 1. Load active cart with items and their products ─────────────────
+        var cart = await _context.Carts
+            .Include(c => c.CartItems)
+                .ThenInclude(ci => ci.Product)
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Status == "Active");
 
-        bool fromCart = request.Items is null || request.Items.Count == 0;
+        if (cart is null || !cart.CartItems.Any())
+            throw new InvalidOperationException(
+                "Your cart is empty. Add products before placing an order.");
 
-        if (!fromCart)
+        // ── 2. Convert each CartItem → OrderItem ──────────────────────────────
+        // UnitPrice is the price that was locked when the item was added to cart,
+        // so it is used as the snapshot — not the current product price.
+        var orderItems = cart.CartItems.Select(ci => new OrderItem
         {
-            var explicitItems = request.Items!;
-            if (explicitItems.Any(i => i.Quantity <= 0))
-                throw new ArgumentException("All item quantities must be greater than 0.");
-
-            lineItems = explicitItems.Select(i => (i.ProductId, i.Quantity)).ToList();
-        }
-        else
-        {
-            var cart = await _context.Carts
-                .Include(c => c.CartItems)
-                .FirstOrDefaultAsync(c => c.UserId == userId && c.Status == "Active");
-
-            if (cart is null || !cart.CartItems.Any())
-                throw new InvalidOperationException("No items provided and your cart is empty.");
-
-            lineItems = cart.CartItems.Select(ci => (ci.ProductId, ci.Quantity)).ToList();
-        }
-
-        // Validate products
-        var productIds = lineItems.Select(l => l.ProductId).Distinct().ToList();
-        var products = await _context.Products
-            .AsNoTracking()
-            .Where(p => productIds.Contains(p.ProductId) && p.IsActive)
-            .ToListAsync();
-
-        if (products.Count != productIds.Count)
-            throw new InvalidOperationException("One or more products were not found or are inactive.");
-
-        // Build order items
-        var orderItems = lineItems.Select(l =>
-        {
-            var product = products.First(p => p.ProductId == l.ProductId);
-            return new OrderItem
-            {
-                ProductId = l.ProductId,
-                ProductNameSnapshot = product.ProductName,
-                UnitPriceSnapshot = product.CurrentPrice,
-                Quantity = l.Quantity
-            };
+            ProductId = ci.ProductId,          // FK reference to Product
+            ProductNameSnapshot = ci.Product?.ProductName ?? string.Empty,
+            UnitPriceSnapshot = ci.UnitPrice,          // locked cart price
+            Quantity = ci.Quantity
         }).ToList();
 
         var subtotal = orderItems.Sum(i => i.UnitPriceSnapshot * i.Quantity);
 
+        // ── 3. Create the Order ───────────────────────────────────────────────
         var order = new Order
         {
             UserId = userId,
             OrderStatus = "Pending",
-            PaymentMethod = request.PaymentMethod,
             ShippingAddress = request.ShippingAddress,
             BillingAddress = request.BillingAddress,
             Subtotal = subtotal,
@@ -252,25 +234,64 @@ public class OrderService : IOrderService
 
         _context.Orders.Add(order);
 
-        // Clear the cart after checkout
-        if (fromCart)
+        // ── 4. Create a pending Payment record so VNPay can pick it up ─────────
+        // Amount = Subtotal + ShippingFee - DiscountAmount (total user must pay)
+        var payment = new Payment
         {
-            var cart = await _context.Carts
-                .Include(c => c.CartItems)
-                .FirstOrDefaultAsync(c => c.UserId == userId && c.Status == "Active");
+            Order = order,          // EF will resolve OrderId after SaveChanges
+            Amount = subtotal + request.ShippingFee - request.DiscountAmount,
+            Currency = "VND",
+            Method = "VNPay",
+            PaymentStatus = "Pending",
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.Payments.Add(payment);
 
-            if (cart is not null)
-            {
-                _context.CartItems.RemoveRange(cart.CartItems);
-                cart.Status = "CheckedOut";
-                cart.UpdatedAt = DateTime.UtcNow;
-            }
-        }
+        // ── 5. Mark cart as checked-out and remove its items ──────────────────
+        _context.CartItems.RemoveRange(cart.CartItems);
+        cart.Status = "CheckedOut";
+        cart.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
+        // ── 6. Reload with User + Payments for response mapping ───────────────
         var created = await BaseQuery().FirstAsync(o => o.OrderId == order.OrderId);
         return MapToDetailDto(created);
+    }
+
+    public async Task<CheckoutPreviewDto> GetCheckoutPreviewAsync(
+        int userId, decimal shippingFee = 0, decimal discountAmount = 0)
+    {
+        var cart = await _context.Carts
+            .Include(c => c.CartItems)
+                .ThenInclude(ci => ci.Product)
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Status == "Active");
+
+        if (cart is null || !cart.CartItems.Any())
+            return new CheckoutPreviewDto
+            {
+                ShippingFee = shippingFee,
+                DiscountAmount = discountAmount,
+                Message = "Your cart is empty."
+            };
+
+        var previewItems = cart.CartItems.Select(ci => new CheckoutPreviewItemDto
+        {
+            ProductId = ci.ProductId,
+            ProductName = ci.Product?.ProductName ?? string.Empty,
+            ImageUrl = ci.Product?.ImageUrl,
+            UnitPrice = ci.UnitPrice,
+            Quantity = ci.Quantity
+        }).ToList();
+
+        return new CheckoutPreviewDto
+        {
+            Items = previewItems,
+            Subtotal = previewItems.Sum(i => i.LineTotal),
+            ShippingFee = shippingFee,
+            DiscountAmount = discountAmount,
+            TotalItems = previewItems.Sum(i => i.Quantity)
+        };
     }
 
     public async Task<bool> CancelOrderAsync(int orderId, int userId)
