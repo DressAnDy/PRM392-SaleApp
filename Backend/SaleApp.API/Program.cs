@@ -11,7 +11,6 @@ using SaleApp.Application.Interfaces;
 using SaleApp.Infrastructure.Data;
 using SaleApp.Infrastructure.Services;
 using System.Text;
-
 var builder = WebApplication.CreateBuilder(args);
 
 var configuration = builder.Configuration;
@@ -53,6 +52,8 @@ builder.Services.AddDbContext<SaleAppDbContext>();
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<ICartService, CartService>();
+builder.Services.AddScoped<IVnPayService, VnPayService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<NotificationHelper>();
@@ -128,7 +129,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.RoutePrefix = "";
-        c.SwaggerEndpoint("swagger/v1/swagger.json", "SaleApp API v1.0");       
+        c.SwaggerEndpoint("swagger/v1/swagger.json", "SaleApp API v1.0");
     });
 }
 
