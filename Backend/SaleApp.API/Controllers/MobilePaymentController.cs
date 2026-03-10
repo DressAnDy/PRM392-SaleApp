@@ -88,7 +88,9 @@ public class MobilePaymentController : ControllerBase
     {
         try
         {
+            // AsTracking() ghi đè global NoTracking để EF phát hiện thay đổi khi auto-expire
             var payment = await _context.Payments
+                .AsTracking()
                 .Include(p => p.Order)
                 .FirstOrDefaultAsync(p => p.PaymentId == paymentId);
 

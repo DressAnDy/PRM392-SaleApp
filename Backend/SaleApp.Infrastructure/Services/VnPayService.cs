@@ -160,10 +160,12 @@ public class VnPayService : IVnPayService
 
         // 4. Parse các trường quan trọng
         queryParams.TryGetValue("vnp_ResponseCode", out var responseCode);
+        queryParams.TryGetValue("vnp_TransactionStatus", out var transactionStatus);
         queryParams.TryGetValue("vnp_TransactionNo", out var transactionId);
         queryParams.TryGetValue("vnp_TxnRef", out var txnRef);
 
         responseCode ??= string.Empty;
+        transactionStatus ??= string.Empty;
         transactionId ??= string.Empty;
         txnRef ??= string.Empty;
 
@@ -179,7 +181,9 @@ public class VnPayService : IVnPayService
         }
 
         // 5. Load payment record từ DB
+        // AsTracking() ghi đè global NoTracking để EF phát hiện thay đổi và SaveChanges hoạt động
         var payment = await _context.Payments
+            .AsTracking()
             .Include(p => p.Order)
             .FirstOrDefaultAsync(p => p.PaymentId == paymentId);
 
@@ -197,15 +201,20 @@ public class VnPayService : IVnPayService
         {
             return new VnPayCallbackResponse
             {
-                IsSuccess = responseCode == "00",
+                IsSuccess = payment.PaymentStatus == "Paid",
                 Message = "Payment already processed.",
                 OrderId = payment.OrderId,
-                TransactionId = payment.ProviderTransactionId
+                TransactionId = payment.ProviderTransactionId,
+                PaymentId = payment.PaymentId,
+                PaidAt = payment.PaidAt
             };
         }
 
-        // 6. Cập nhật trạng thái dựa trên responseCode của VnPay
-        if (responseCode == "00")
+        // 6. Cập nhật trạng thái dựa trên responseCode + transactionStatus của VNPay
+        // Cả hai phải là "00" mới coi là thành công
+        var isSuccess = responseCode == "00" && transactionStatus == "00";
+
+        if (isSuccess)
         {
             payment.PaymentStatus = "Paid";
             payment.PaidAt = DateTime.UtcNow;
@@ -226,12 +235,14 @@ public class VnPayService : IVnPayService
         // 7. Return kết quả
         return new VnPayCallbackResponse
         {
-            IsSuccess = responseCode == "00",
-            Message = responseCode == "00"
+            IsSuccess = isSuccess,
+            Message = isSuccess
                 ? "Payment successful."
-                : $"Payment failed (code: {responseCode}).",
+                : $"Payment failed (code: {responseCode}, transactionStatus: {transactionStatus}).",
             OrderId = payment.OrderId,
-            TransactionId = transactionId
+            TransactionId = transactionId,
+            PaymentId = payment.PaymentId,
+            PaidAt = isSuccess ? payment.PaidAt : null
         };
     }
     // ─────────────────────────── Private Helpers ───────────────────────────
@@ -269,6 +280,20 @@ public class VnPayService : IVnPayService
 
     public Task<VnPayCallbackResponse> HandleCallbackAsync(string rawQueryString)
     {
-        throw new NotImplementedException();
+        // Parse "?key=val&key=val" → dictionary, then delegate to the dict-based handler
+        var queryParams = new Dictionary<string, string>(StringComparer.Ordinal);
+        var qs = rawQueryString.StartsWith('?') ? rawQueryString[1..] : rawQueryString;
+
+        foreach (var segment in qs.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eqIdx = segment.IndexOf('=');
+            if (eqIdx < 0) continue;
+            var key = WebUtility.UrlDecode(segment[..eqIdx]);
+            var value = WebUtility.UrlDecode(segment[(eqIdx + 1)..]);
+            if (!string.IsNullOrEmpty(key))
+                queryParams[key] = value;
+        }
+
+        return HandleCallbackAsync(queryParams);
     }
 }

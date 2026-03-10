@@ -16,4 +16,6 @@ public class VnPayCallbackResponse
     public string Message { get; set; } = string.Empty;
     public int? OrderId { get; set; }
     public string? TransactionId { get; set; }
+    public int? PaymentId { get; set; }
+    public DateTime? PaidAt { get; set; }
 }

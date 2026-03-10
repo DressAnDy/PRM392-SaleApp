@@ -28,6 +28,7 @@ public class PaymentWebhookController : ControllerBase
     /// Configure this URL in the VNPay merchant portal.
     /// </summary>
     [HttpGet("ipn")]
+    [HttpPost("ipn")]
     public async Task<IActionResult> VnPayIPN()
     {
         try

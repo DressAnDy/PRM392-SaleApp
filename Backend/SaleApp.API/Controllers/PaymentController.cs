@@ -47,16 +47,30 @@ public class PaymentController : ControllerBase
     }
 
     /// <summary>
-    /// VNPay return URL handler. VNPay redirects the user's browser here after payment.
-    /// The frontend (ReturnUrl) forwards the full query string to this endpoint.
+    /// VNPay return URL handler called by the mobile app after VNPay redirects to the deep link.
+    /// Verifies the HMAC-SHA512 signature, updates Payment + Order status, and returns
+    /// a PaymentStatusResponse so the app can display success/failure immediately.
     /// </summary>
     [HttpGet("vnpay/callback")]
     public async Task<IActionResult> VnPayCallback()
     {
         try
         {
-            var result = await _vnPayService.HandleCallbackAsync(Request.QueryString.Value ?? string.Empty);
-            return Ok(result);
+            var callbackResult = await _vnPayService.HandleCallbackAsync(Request.QueryString.Value ?? string.Empty);
+
+            var response = new PaymentStatusResponse
+            {
+                PaymentId = callbackResult.PaymentId ?? 0,
+                OrderId = callbackResult.OrderId ?? 0,
+                Status = callbackResult.IsSuccess ? "Paid" : "Failed",
+                IsPaid = callbackResult.IsSuccess,
+                TransactionId = callbackResult.TransactionId,
+                PaidAt = callbackResult.PaidAt,
+                Message = callbackResult.Message,
+                CanRetry = !callbackResult.IsSuccess
+            };
+
+            return Ok(response);
         }
         catch (Exception ex)
         {
