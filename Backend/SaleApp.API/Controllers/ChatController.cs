@@ -140,12 +140,19 @@ public class ChatController : ControllerBase
                 
                 _logger.LogInformation($"?? Sending to SignalR group: '{targetGroup}'");
                 await _hubContext.Clients.Group(targetGroup).SendAsync("ReceiveMessage", message);
+                
+                // Also send to shop_admin group so other admins see the message
+                await _hubContext.Clients.Group("shop_admin").SendAsync("ReceiveMessage", message);
             }
             else
             {
                 // User sent message ? Send to all shop admins
                 _logger.LogInformation($"?? Sending to SignalR group: 'shop_admin'");
                 await _hubContext.Clients.Group("shop_admin").SendAsync("ReceiveMessage", message);
+                
+                // Also send back to the sender's group so they see their own message in realtime
+                var senderGroup = $"user_{userId}";
+                await _hubContext.Clients.Group(senderGroup).SendAsync("ReceiveMessage", message);
             }
 
             _logger.LogInformation($"? Message sent via SignalR successfully");
