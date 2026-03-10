@@ -55,9 +55,7 @@ public class PaymentController : ControllerBase
     {
         try
         {
-            var queryDict = Request.Query
-                .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
-            var result = await _vnPayService.HandleCallbackAsync(queryDict);
+            var result = await _vnPayService.HandleCallbackAsync(Request.QueryString.Value ?? string.Empty);
             return Ok(result);
         }
         catch (Exception ex)

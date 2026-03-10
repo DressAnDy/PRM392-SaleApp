@@ -266,4 +266,9 @@ public class VnPayService : IVnPayService
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(data));
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    public Task<VnPayCallbackResponse> HandleCallbackAsync(string rawQueryString)
+    {
+        throw new NotImplementedException();
+    }
 }

@@ -32,13 +32,12 @@ public class PaymentWebhookController : ControllerBase
     {
         try
         {
-            var queryParams = Request.Query
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString());
+            var rawQuery = Request.QueryString.Value ?? string.Empty;
 
             _logger.LogInformation(
-                "VNPay IPN received with {Count} parameters", queryParams.Count);
+                "VNPay IPN received — raw query length: {Length}", rawQuery.Length);
 
-            var result = await _vnPayService.HandleCallbackAsync(queryParams);
+            var result = await _vnPayService.HandleCallbackAsync(rawQuery);
 
             if (result.IsSuccess)
             {
@@ -72,10 +71,8 @@ public class PaymentWebhookController : ControllerBase
     {
         try
         {
-            var queryParams = Request.Query
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString());
-
-            var result = await _vnPayService.HandleCallbackAsync(queryParams);
+            var rawQuery = Request.QueryString.Value ?? string.Empty;
+            var result = await _vnPayService.HandleCallbackAsync(rawQuery);
 
             _logger.LogInformation(
                 "VNPay Return callback — OrderId: {OrderId}, Success: {Success}",

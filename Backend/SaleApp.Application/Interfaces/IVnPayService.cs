@@ -12,6 +12,8 @@ public interface IVnPayService
 
     /// <summary>
     /// Validates the VNPay callback signature and updates the Payment/Order status accordingly.
+    /// Pass <paramref name="rawQueryString"/> exactly as received from VNPay (e.g. Request.QueryString.Value)
+    /// so the signature is verified over the original URL-encoded bytes without any decode/re-encode round-trip.
     /// </summary>
-    Task<VnPayCallbackResponse> HandleCallbackAsync(IDictionary<string, string> queryParams);
+    Task<VnPayCallbackResponse> HandleCallbackAsync(string rawQueryString);
 }
