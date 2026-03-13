@@ -129,7 +129,7 @@ public class DataSeeder
                     Description = "Latest Apple smartphone with advanced features",
                     TechnicalSpecifications = "6.1-inch display, A17 Pro chip, 12MP camera",
                     CurrentPrice = 999.99m,
-                    ImageUrl = "https://via.placeholder.com/300x300?text=iPhone15Pro",
+                    ImageUrl = "file:///android_asset/images/iphone15pro.jpg",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -141,7 +141,7 @@ public class DataSeeder
                     Description = "Flagship Android phone with AI capabilities",
                     TechnicalSpecifications = "6.2-inch display, Snapdragon 8 Gen 3, 50MP camera",
                     CurrentPrice = 899.99m,
-                    ImageUrl = "https://via.placeholder.com/300x300?text=GalaxyS24",
+                    ImageUrl = "file:///android_asset/images/samsunggalaxys24.jpg",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -153,7 +153,7 @@ public class DataSeeder
                     Description = "Classic running shoes with air cushioning",
                     TechnicalSpecifications = "Size 42, Black/White, Rubber sole",
                     CurrentPrice = 129.99m,
-                    ImageUrl = "https://via.placeholder.com/300x300?text=NikeAirMax90",
+                    ImageUrl = "file:///android_asset/images/nikeairmax90.jpg",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -165,7 +165,7 @@ public class DataSeeder
                     Description = "Premium single-origin coffee beans from Ethiopia",
                     TechnicalSpecifications = "1kg bag, Medium roast, 100% arabica",
                     CurrentPrice = 24.99m,
-                    ImageUrl = "https://via.placeholder.com/300x300?text=CoffeeBeans",
+                    ImageUrl = "file:///android_asset/images/arabicacoffee.jpg",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
