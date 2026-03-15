@@ -56,6 +56,7 @@ builder.Services.AddScoped<IVnPayService, VnPayService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IStoreLocationService, StoreLocationService>();
 builder.Services.AddScoped<NotificationHelper>();
 
 // Add SignalR
